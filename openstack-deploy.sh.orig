@@ -1,0 +1,80 @@
+# Installing Dependencies
+#sudo apt update
+echo "Répertoire courant : $(pwd)"
+yes | sudo apt install git python3-dev libffi-dev gcc libssl-dev libdbus-glib-1-dev
+yes | sudo apt install python3-venv
+
+# Create a virtual environment and activate it
+python3 -m venv openstack/venv
+source $(pwd)/openstack/venv/bin/activate
+
+# Ensure the latest version of pip is installed
+pip install -U pip
+pip install docker ansible dbus-python
+
+# Install Kolla-ansible
+pip install git+https://opendev.org/openstack/kolla-ansible@master
+sudo mkdir -p /etc/kolla
+sudo chown $USER:$USER /etc/kolla
+cp -r $(pwd)/openstack/venv/share/kolla-ansible/etc_examples/kolla/* /etc/kolla
+cp $(pwd)/openstack/venv/share/kolla-ansible/ansible/inventory/* $(pwd)
+
+
+# Install Ansible Galaxy requirements
+kolla-ansible install-deps
+
+
+# Kolla passwords
+kolla-genpwd
+
+
+# configuring Kolla globals.yml
+#sudo apt install net-tools
+# In this we are storing the ip of eth0 for further use.
+my_br_ip=$(ifconfig enX0 | egrep -o 'inet [0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'  | cut -d' ' -f2)
+
+
+# kolla_base_distro: "ubuntu"
+# network_interface: "eth0"
+# neutron_external_interface: "eth1"
+# kolla_internal_vip_address: "$my_br_ip"
+# enable_cinder: "no"
+# enable_haproxy: "no"
+
+cat << EOF >> /etc/kolla/globals.yml
+
+# Custom values
+#workaround_ansible_issue_8743: yes
+#enable_openstack_core: "yes"
+kolla_base_distro: "ubuntu"
+network_interface: "enX0"
+neutron_external_interface: "eth1"
+kolla_internal_vip_address: "172.31.36.200"
+EOF
+
+
+# Deployment
+kolla-ansible bootstrap-servers -i $(pwd)/all-in-one
+kolla-ansible prechecks -i $(pwd)/all-in-one
+kolla-ansible deploy -i $(pwd)/all-in-one
+
+
+# Using OpenStack
+pip install python-openstackclient -c https://releases.openstack.org/constraints/upper/master
+kolla-ansible post-deploy
+$(pwd)/openstack/venv/share/kolla-ansible/init-runonce
+
+# changing virt_type in nova-com 
+#sed -i 's/virt_type = kvm/virt_type = qemu/' /etc/kolla/nova-compute/nova.conf
+#sudo docker restart nova_compute
+
+# Displaying message
+echo 🙂 Successfully Deployed
+
+#creating a VM
+#source /etc/kolla/admin-openrc.sh
+
+
+
+# Displaying login password
+cat /etc/kolla/passwords.yml | grep keystone_admin_password
